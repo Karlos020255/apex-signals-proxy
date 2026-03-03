@@ -21,7 +21,8 @@ function extractJSON(text) {
 }
 
 function toTwelveSymbol(pair) {
-  return pair.replace('/', '');
+  return pair;
+}
 }
 
 // NUR 2 API Calls statt 5 - spart Credits!
