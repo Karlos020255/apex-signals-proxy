@@ -2,33 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
-// Robuster JSON Parser - funktioniert auch wenn KI extra Text schreibt
+// Robuster JSON Parser
 function parseAIResponse(text) {
-  try {
-    // Versuch 1: direkt parsen
-    return JSON.parse(text.trim());
-  } catch(e1) {
-    try {
-      // Versuch 2: Backticks entfernen
-      const clean = text.replace(/```json|```/g, '').trim();
-      return JSON.parse(clean);
-    } catch(e2) {
-      try {
-        // Versuch 3: Nur den JSON Block extrahieren
-        const match = text.match(/\{[\s\S]*?\}(?=\s*$)/);
-        if (match) return JSON.parse(match[0]);
-        // Versuch 4: Ersten { bis letzten } nehmen
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start !== -1 && end !== -1) {
-          return JSON.parse(text.substring(start, end + 1));
-        }
-        throw new Error('Kein JSON gefunden in: ' + text.substring(0, 80));
-      } catch(e3) {
-        throw new Error('JSON Parse fehlgeschlagen: ' + e3.message);
-      }
-    }
-  }
+  // Schritt 1: Backticks und json-Tag entfernen
+  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  // Schritt 2: Ersten { bis letzten } extrahieren
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('Kein JSON gefunden in: ' + clean.substring(0, 80));
+  const jsonStr = clean.substring(start, end + 1);
+  return JSON.parse(jsonStr);
 }
 
 const app = express();
