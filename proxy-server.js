@@ -2,24 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 
-// Robuster JSON Parser
-function parseAIResponse(text) {
-  // Alle Markdown Formatierungen entfernen
-  let clean = text
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .replace(/^[^{]*/s, '')
-    .trim();
-  // Ersten { bis letzten } extrahieren
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-  if (start === -1 || end === -1) {
-    throw new Error('Kein JSON gefunden in: ' + text.substring(0, 80));
-  }
-  const jsonStr = clean.substring(start, end + 1);
-  return JSON.parse(jsonStr);
-}
-
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -31,114 +13,103 @@ function getSession(hour) {
   return "ASIEN";
 }
 
-function getClaudePrompt(pair) {
-  const now = new Date();
-  const time = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
-  const session = getSession(now.getUTCHours());
-  return `Du bist Senior Forex Makro-Analyst (Goldman Sachs, 20 Jahre Erfahrung).
-Zeit: ${time} | Datum: ${date} | Session: ${session} | Pair: ${pair}
-
-SPEZIALISIERUNG: Makroökonomie, Zentralbank-Politik, Geopolitik, Fundamentalanalyse.
-
-Analysiere ${pair} auf Basis von:
-1. ZENTRALBANK DIVERGENZ: Welche CB ist hawkisher? Aktueller Zinsentscheid-Ausblick?
-2. GEOPOLITIK: Iran, Ukraine, Naher Osten - USD Safe Haven Nachfrage?
-3. WIRTSCHAFTSDATEN: Letzte CPI/NFP/BIP Daten und Auswirkung auf ${pair}
-4. 4H TREND: Übergeordneter Trend - ist er klar definiert?
-5. 15MIN SCALP: Ist jetzt ein guter Einstieg IM 4H Trend?
-6. SESSION: Ist ${session} optimal für ${pair}?
-
-REGELN: SL max 15 Pips, TP min 1:2 RRR, nur MIT 4H Trend, bei ASIEN Session NEUTRAL bevorzugen.
-
-NUR JSON ohne Backticks: {"signal":"BUY oder SELL oder NEUTRAL","entry":"Preis","sl":"SL Preis","tp":"TP Preis","confidence":8,"reason":"2-3 Sätze: CB-Divergenz + 4H Trend + 15min Setup auf Deutsch"}`;
+function extractJSON(text) {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error('Kein JSON in Antwort');
+  return JSON.parse(text.substring(start, end + 1));
 }
 
-function getGeminiPrompt(pair) {
-  const now = new Date();
-  const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
-  const session = getSession(now.getUTCHours());
-  return `Du bist Forex Scalping-Analyst. Pair: ${pair}. Datum: ${date}. Session: ${session}.
-
-Analysiere mit Fokus auf:
-- Technische Analyse: EMA Stack 4H und 15min, Key Levels, Price Action
-- Momentum: RSI, Break of Structure, Liquiditaetszonen
-- Session: Ist ${session} optimal fuer ${pair}?
-- SL max 15 Pips, TP min 1:2 RRR
-
-WICHTIG: Antworte AUSSCHLIESSLICH mit raw JSON. Kein Markdown, keine Backticks, kein Text davor oder danach.
-Format exakt so: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.08450","sl":"1.08300","tp":"1.08650","confidence":7,"reason":"2 Saetze auf Deutsch"}`;
+// CLAUDE — Makro + Fundamentals + Geopolitik
+function claudePrompt(pair) {
+  const d = new Date();
+  const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+  const session = getSession(d.getUTCHours());
+  return `Forex Makro-Analyst. Pair: ${pair}. Datum: ${date}. Session: ${session}.
+Analysiere: Zentralbank-Divergenz (Fed/EZB/BoE/BoJ), Geopolitik Iran/Ukraine, 4H Trend, 15min Scalp-Einstieg.
+Regeln: SL max 15 Pips, TP min 1:2 RRR, nur MIT 4H Trend.
+Antworte NUR mit JSON (kein Markdown, keine Erklaerung):
+{"signal":"BUY","entry":"1.08450","sl":"1.08300","tp":"1.08750","confidence":7,"reason":"2 Saetze Deutsch"}`;
 }
 
-function getGPTPrompt(pair) {
-  const now = new Date();
-  const time = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
-  const session = getSession(now.getUTCHours());
-  return `Du bist quantitativer Forex-Trader mit Expertise in Sentiment, News-Trading und Intermarket-Analyse.
-Zeit: ${time} | Datum: ${date} | Session: ${session} | Pair: ${pair}
-
-SPEZIALISIERUNG: Marktsentiment, News-Impact, COT-Daten, Intermarket-Korrelationen.
-
-Analysiere ${pair} auf Basis von:
-1. SENTIMENT: Risk-on oder Risk-off? DXY Stärke/Schwäche?
-2. NEWS: Welche roten Events auf Forex Factory beeinflussen ${pair} heute?
-3. COT DATEN: Großspekulanten Long oder Short positioniert?
-4. INTERMARKET: Korrelation mit SPX, Gold, Öl, Anleihenrenditen
-5. 4H+15MIN CONFLUENCE: Trendstärke auf beiden Timeframes übereinstimmend?
-6. SMART MONEY: Wo sind Retail-Stops? Contrarian Perspektive?
-
-REGELN: Kein Trade 30min vor roten News, SL max 15 Pips, TP 1:2 bis 1:3 RRR.
-
-NUR JSON ohne Backticks: {"signal":"BUY oder SELL oder NEUTRAL","entry":"Preis","sl":"SL Preis","tp":"TP Preis","confidence":8,"reason":"2-3 Sätze: Sentiment + News-Impact + 4H/15min Confluence auf Deutsch"}`;
+// GEMINI — Technische Analyse + Price Action
+function geminiPrompt(pair) {
+  const d = new Date();
+  const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+  const session = getSession(d.getUTCHours());
+  return `Forex technischer Analyst. Pair: ${pair}. Datum: ${date}. Session: ${session}.
+Analysiere: EMA 20/50/200 auf 4H und 15min, Key Levels, Price Action, RSI, Break of Structure.
+Regeln: SL hinter Key Level max 15 Pips, TP Liquiditaetszone min 1:2 RRR.
+Antworte NUR mit JSON (kein Markdown, keine Erklaerung):
+{"signal":"BUY","entry":"1.08450","sl":"1.08300","tp":"1.08750","confidence":7,"reason":"2 Saetze Deutsch"}`;
 }
 
+// GPT-4 — Sentiment + News + Intermarket
+function gptPrompt(pair) {
+  const d = new Date();
+  const date = d.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+  const session = getSession(d.getUTCHours());
+  return `Forex Sentiment-Analyst. Pair: ${pair}. Datum: ${date}. Session: ${session}.
+Analysiere: Risk-on/off, DXY, COT Daten, News Impact, Intermarket (Gold/Oel/Anleihen), 4H+15min Confluence.
+Regeln: Kein Trade vor roten News, SL max 15 Pips, TP 1:2 bis 1:3 RRR.
+Antworte NUR mit JSON (kein Markdown, keine Erklaerung):
+{"signal":"BUY","entry":"1.08450","sl":"1.08300","tp":"1.08750","confidence":7,"reason":"2 Saetze Deutsch"}`;
+}
+
+// CLAUDE ROUTE
 app.post('/claude', async (req, res) => {
   try {
     const { pair } = req.body;
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, messages: [{ role: 'user', content: getClaudePrompt(pair) }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 500, messages: [{ role: 'user', content: claudePrompt(pair) }] })
     });
-    const data = await response.json();
-    if (data.error) return res.status(400).json({ error: data.error.message });
-    const text = data.content?.[0]?.text || '';
-    res.json(parseAIResponse(text));
+    const d = await r.json();
+    if (d.error) return res.status(400).json({ error: d.error.message });
+    res.json(extractJSON(d.content?.[0]?.text || ''));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// GEMINI ROUTE
 app.post('/gemini', async (req, res) => {
   try {
     const { key, pair } = req.body;
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${key}`, {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: getGeminiPrompt(pair) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } })
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: geminiPrompt(pair) }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 500, responseMimeType: "application/json" }
+      })
     });
-    const data = await response.json();
-    if (data.error) return res.status(400).json({ error: data.error.message });
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    res.json(parseAIResponse(text));
+    const d = await r.json();
+    if (d.error) return res.status(400).json({ error: d.error.message });
+    const text = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    res.json(extractJSON(text));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// OPENAI ROUTE
 app.post('/openai', async (req, res) => {
   try {
     const { key, pair } = req.body;
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: 'gpt-4o', max_tokens: 600, messages: [{ role: 'user', content: getGPTPrompt(pair) }] })
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 500,
+        response_format: { type: "json_object" },
+        messages: [{ role: 'user', content: gptPrompt(pair) }]
+      })
     });
-    const data = await response.json();
-    if (data.error) return res.status(400).json({ error: data.error.message });
-    const content = data.choices?.[0]?.message?.content || '';
-    res.json(parseAIResponse(content));
+    const d = await r.json();
+    if (d.error) return res.status(400).json({ error: d.error.message });
+    res.json(extractJSON(d.choices?.[0]?.message?.content || ''));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v2.0 — SCALPING MODE'));
-
+app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v3.0'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
