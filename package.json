@@ -1,0 +1,14 @@
+{
+  "name": "apex-signals-proxy",
+  "version": "1.0.0",
+  "description": "CORS Proxy for Apex Signals Trading Dashboard",
+  "main": "proxy-server.js",
+  "scripts": {
+    "start": "node proxy-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "node-fetch": "^2.7.0"
+  }
+}
