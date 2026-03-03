@@ -52,7 +52,7 @@ function getGeminiPrompt(pair) {
   const now = new Date();
   const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
   const session = getSession(now.getUTCHours());
-  return `Antworte NUR mit JSON. Forex ${pair} ${session} 15min Scalp: {"signal":"BUY","entry":"1.0845","sl":"1.0830","tp":"1.0870","confidence":7,"reason":"Kurze Begruendung"}`;
+  return `Du bist Forex-Analyst. Analysiere ${pair} fuer ${date} (${session} Session). Beachte: 4H Trend, 15min Einstieg, Fed/EZB/BoJ, Iran-Geopolitik. Antworte NUR mit diesem JSON ohne Backticks oder sonstigen Text: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.08450","sl":"1.08300","tp":"1.08650","confidence":7,"reason":"2 Saetze Deutsch"}`;
 }
 
 function getGPTPrompt(pair) {
@@ -96,7 +96,7 @@ app.post('/claude', async (req, res) => {
 app.post('/gemini', async (req, res) => {
   try {
     const { key, pair } = req.body;
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: getGeminiPrompt(pair) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } })
