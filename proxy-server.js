@@ -111,7 +111,7 @@ app.post('/claude', async (req, res) => {
 app.post('/gemini', async (req, res) => {
   try {
     const { key, pair } = req.body;
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-001:generateContent?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: getGeminiPrompt(pair) }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } })
