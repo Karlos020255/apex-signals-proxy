@@ -67,25 +67,9 @@ NUR JSON ohne Backticks: {"signal":"BUY oder SELL oder NEUTRAL","entry":"Preis",
 
 function getGeminiPrompt(pair) {
   const now = new Date();
-  const time = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
   const session = getSession(now.getUTCHours());
-  return `Du bist professioneller technischer Analyst - Price Action und Smart Money Concepts Experte.
-Zeit: ${time} | Datum: ${date} | Session: ${session} | Pair: ${pair}
-
-SPEZIALISIERUNG: Price Action, SMC, Chartmuster, Key Levels, EMA Analyse.
-
-Analysiere ${pair} auf Basis von:
-1. 4H STRUKTUR: HH/LL Struktur, Trend-Richtung, wichtige S/R Zones
-2. 15MIN PRICE ACTION: Kerzenformation, BoS, CHoCH, Engulfing
-3. KEY LEVELS: Nächste kritische Unterstützung und Widerstand in Pips
-4. EMA CONFLUENCE: EMA 20/50/200 Stack auf 15min UND 4H ausgerichtet?
-5. MOMENTUM: RSI Position, Divergenz vorhanden?
-6. LIQUIDITY: Wo liegen Stop-Cluster? Fair Value Gaps?
-
-REGELN: SL hinter Key Level (max 15 Pips), TP zur Liquiditätszone (min 1:2 RRR), Einstieg nach Kerzenbestätigung.
-
-NUR JSON ohne Backticks: {"signal":"BUY oder SELL oder NEUTRAL","entry":"Preis","sl":"SL hinter Key Level","tp":"Liquiditätszone als TP","confidence":8,"reason":"2-3 Sätze: 4H Struktur + 15min Setup + konkretes Level auf Deutsch"}`;
+  return `Forex Analyst. Analysiere ${pair} (${date}, ${session} Session) fuer 15min Scalping mit 4H Trendfilter. Antworte NUR mit diesem JSON, kein anderer Text: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.08450","sl":"1.08300","tp":"1.08650","confidence":7,"reason":"2 Saetze auf Deutsch: 4H Trend und 15min Setup"}`;
 }
 
 function getGPTPrompt(pair) {
