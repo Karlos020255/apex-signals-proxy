@@ -40,7 +40,7 @@ app.post('/gemini', async (req, res) => {
     const now = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
     const prompt = `Du bist Forex-Analyst. Analysiere ${pair} für ${now}. Beachte Trend, Fed/EZB/BoJ Politik, Iran-Geopolitik. Antworte NUR mit diesem JSON ohne Backticks: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.1620","sl":"1.1580","tp":"1.1700","confidence":7,"reason":"2-3 Sätze auf Deutsch"}`;
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3 } }) }
     );
     const data = await response.json();
