@@ -4,12 +4,18 @@ const fetch = require('node-fetch');
 
 // Robuster JSON Parser
 function parseAIResponse(text) {
-  // Schritt 1: Backticks und json-Tag entfernen
-  let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-  // Schritt 2: Ersten { bis letzten } extrahieren
+  // Alle Markdown Formatierungen entfernen
+  let clean = text
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .replace(/^[^{]*/s, '')
+    .trim();
+  // Ersten { bis letzten } extrahieren
   const start = clean.indexOf('{');
   const end = clean.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('Kein JSON gefunden in: ' + clean.substring(0, 80));
+  if (start === -1 || end === -1) {
+    throw new Error('Kein JSON gefunden in: ' + text.substring(0, 80));
+  }
   const jsonStr = clean.substring(start, end + 1);
   return JSON.parse(jsonStr);
 }
@@ -52,7 +58,16 @@ function getGeminiPrompt(pair) {
   const now = new Date();
   const date = now.toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
   const session = getSession(now.getUTCHours());
-  return `Du bist Forex-Analyst. Analysiere ${pair} fuer ${date} (${session} Session). Beachte: 4H Trend, 15min Einstieg, Fed/EZB/BoJ, Iran-Geopolitik. Antworte NUR mit diesem JSON ohne Backticks oder sonstigen Text: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.08450","sl":"1.08300","tp":"1.08650","confidence":7,"reason":"2 Saetze Deutsch"}`;
+  return `Du bist Forex Scalping-Analyst. Pair: ${pair}. Datum: ${date}. Session: ${session}.
+
+Analysiere mit Fokus auf:
+- Technische Analyse: EMA Stack 4H und 15min, Key Levels, Price Action
+- Momentum: RSI, Break of Structure, Liquiditaetszonen
+- Session: Ist ${session} optimal fuer ${pair}?
+- SL max 15 Pips, TP min 1:2 RRR
+
+WICHTIG: Antworte AUSSCHLIESSLICH mit raw JSON. Kein Markdown, keine Backticks, kein Text davor oder danach.
+Format exakt so: {"signal":"BUY oder SELL oder NEUTRAL","entry":"1.08450","sl":"1.08300","tp":"1.08650","confidence":7,"reason":"2 Saetze auf Deutsch"}`;
 }
 
 function getGPTPrompt(pair) {
