@@ -93,7 +93,9 @@ app.post('/claude', async (req, res) => {
     const data = await response.json();
     if (data.error) return res.status(400).json({ error: data.error.message });
     const text = data.content?.[0]?.text || '';
-    res.json(JSON.parse(text.replace(/```json|```/g, '').trim()));
+    const cmatch = text.match(/{[\s\S]*}/);
+    if (!cmatch) return res.status(500).json({ error: 'Kein JSON in Claude Antwort' });
+    res.json(JSON.parse(cmatch[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -108,7 +110,9 @@ app.post('/gemini', async (req, res) => {
     const data = await response.json();
     if (data.error) return res.status(400).json({ error: data.error.message });
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    res.json(JSON.parse(text.replace(/```json|```/g, '').trim()));
+    const gmatch = text.match(/{[\s\S]*}/);
+    if (!gmatch) return res.status(500).json({ error: 'Kein JSON in Gemini Antwort' });
+    res.json(JSON.parse(gmatch[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -123,7 +127,9 @@ app.post('/openai', async (req, res) => {
     const data = await response.json();
     if (data.error) return res.status(400).json({ error: data.error.message });
     const content = data.choices?.[0]?.message?.content || '';
-    res.json(JSON.parse(content.replace(/```json|```/g, '').trim()));
+    const omatch = content.match(/{[\s\S]*}/);
+    if (!omatch) return res.status(500).json({ error: 'Kein JSON in OpenAI Antwort' });
+    res.json(JSON.parse(omatch[0]));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
