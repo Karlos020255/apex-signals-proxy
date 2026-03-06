@@ -69,18 +69,70 @@ async function getLiveMarketData(pair, twelveKey) {
 }
 
 // ── NEWS & KALENDER ────────────────────────────────────────────
+const USD_PAIRS = ['EUR/USD','GBP/USD','AUD/USD','NZD/USD','XAU/USD'];
+
+function scoreHeadline(h, base, quote, pair) {
+  const BULL = ['surge','rally','rise','gain','strong','hawkish','hike','beat','better','growth','optimism','boost','upgrade','soar','jump','recover'];
+  const BEAR = ['fall','drop','decline','weak','dovish','cut','miss','worse','recession','concern','downgrade','crash','slump','tumble','slide'];
+  const usdIsQuote = USD_PAIRS.includes(pair);
+  const text = h.toLowerCase();
+  let score = 0;
+
+  const hasBase = text.includes(base.toLowerCase()) ||
+    (base==='EUR' && (text.includes('euro')||text.includes('ecb'))) ||
+    (base==='GBP' && (text.includes('pound')||text.includes('sterling')||text.includes('boe'))) ||
+    (base==='JPY' && (text.includes('yen')||text.includes('boj'))) ||
+    (base==='AUD' && (text.includes('aussie')||text.includes('rba'))) ||
+    (base==='XAU' && text.includes('gold'));
+  const hasUSD = text.includes('usd')||text.includes('dollar')||text.includes('fed')||text.includes('federal reserve');
+
+  BULL.forEach(w => {
+    if (text.includes(w)) {
+      if (hasBase) score += 1;
+      if (hasUSD && usdIsQuote) score -= 1;
+    }
+  });
+  BEAR.forEach(w => {
+    if (text.includes(w)) {
+      if (hasBase) score -= 1;
+      if (hasUSD && usdIsQuote) score += 1;
+    }
+  });
+  return score;
+}
+
 async function getLiveNews(pair, finnhubKey) {
-  if (!finnhubKey) return 'Kein Finnhub Key';
+  if (!finnhubKey) return { text: 'Kein Finnhub Key', sentiment: 'UNBEKANNT', score: '0' };
   try {
     const r = await fetch(`https://finnhub.io/api/v1/news?category=forex&token=${finnhubKey}`);
     const news = await r.json();
-    if (!Array.isArray(news)) return 'Keine News verfuegbar';
-    const currencies = pair.split('/');
-    const relevant = news
-      .filter(n => currencies.some(c => (n.headline||'').includes(c) || (n.summary||'').includes(c)))
-      .slice(0, 3).map(n => n.headline).join(' | ');
-    return relevant || 'Keine relevanten News gefunden';
-  } catch(e) { return 'News nicht verfuegbar'; }
+    if (!Array.isArray(news) || news.length === 0) {
+      return { text: 'Keine News verfuegbar', sentiment: 'UNBEKANNT', score: '0' };
+    }
+    const [base, quote] = pair.split('/');
+    const keywords = [base, quote, 'fed','ecb','boe','boj','dollar','euro','pound','yen','forex','rate','inflation'].map(k=>k.toLowerCase());
+    
+    const relevant = news.filter(n => {
+      const h = (n.headline||'').toLowerCase();
+      return keywords.some(k => h.includes(k));
+    }).slice(0, 6);
+
+    const toUse = relevant.length > 0 ? relevant : news.slice(0, 3);
+    
+    const scored = toUse.map(n => {
+      const s = scoreHeadline(n.headline, base, quote, pair);
+      const sentiment = s > 0.5 ? 'BULLISH' : s < -0.5 ? 'BEARISH' : 'NEUTRAL';
+      return { headline: n.headline, sentiment, score: s };
+    });
+
+    const avg = scored.reduce((a,b) => a + b.score, 0) / scored.length;
+    const overall = avg > 0.4 ? 'BULLISH' : avg < -0.4 ? 'BEARISH' : 'NEUTRAL';
+    const topText = scored.slice(0,3).map(n => `[${n.sentiment}] ${n.headline}`).join(' || ');
+
+    return { text: topText, sentiment: overall, score: avg.toFixed(1) };
+  } catch(e) {
+    return { text: 'News nicht verfuegbar', sentiment: 'UNBEKANNT', score: '0' };
+  }
 }
 
 async function getEconomicCalendar(finnhubKey) {
@@ -378,9 +430,10 @@ app.post('/claude', async (req, res) => {
   try {
     const { pair, twelveKey, finnhubKey } = req.body;
     const session = getSession(new Date().getUTCHours());
-    const [market, news, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
-    const result = await callClaude(pair, market, news, calendar, session);
-    res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:news.substring(0,120) });
+    const [market, newsObj, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
+    const newsText = `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`;
+    const result = await callClaude(pair, market, newsText, calendar, session);
+    res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:newsObj.text.substring(0,150) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -388,8 +441,9 @@ app.post('/gemini', async (req, res) => {
   try {
     const { key, pair, twelveKey, finnhubKey } = req.body;
     const session = getSession(new Date().getUTCHours());
-    const [market, news, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
-    const result = await callGemini(key, pair, market, news, calendar, session);
+    const [market, newsObj, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
+    const newsText = `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`;
+    const result = await callGemini(key, pair, market, newsText, calendar, session);
     res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -398,8 +452,9 @@ app.post('/openai', async (req, res) => {
   try {
     const { key, pair, twelveKey, finnhubKey } = req.body;
     const session = getSession(new Date().getUTCHours());
-    const [market, news, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
-    const result = await callGPT(key, pair, market, news, calendar, session);
+    const [market, newsObj, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
+    const newsText = `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`;
+    const result = await callGPT(key, pair, market, newsText, calendar, session);
     res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
