@@ -145,31 +145,49 @@ async function callClaude(pair, m, news, calendar, session) {
   return extractJSON(d.content?.[0]?.text || '');
 }
 
-async function callGemini(geminiKey, pair, m, news, calendar, session, retries=2) {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type':'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: geminiPrompt(pair,m,news,calendar,session) }] }],
-          generationConfig: { temperature:0.1, maxOutputTokens:500, responseMimeType:"application/json" }
-        })
-      });
-      const d = await r.json();
-      if (d.error) {
-        if (d.error.message.includes('high demand') && i < retries) {
-          await new Promise(res => setTimeout(res, 2000 * (i+1)));
+// Gemini Modelle in Reihenfolge - fällt automatisch auf nächstes zurück
+const GEMINI_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash'
+];
+
+async function callGeminiModel(geminiKey, model, prompt) {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature:0.1, maxOutputTokens:500, responseMimeType:"application/json" }
+    })
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message);
+  return extractJSON(d.candidates?.[0]?.content?.parts?.[0]?.text || '');
+}
+
+async function callGemini(geminiKey, pair, m, news, calendar, session) {
+  const prompt = geminiPrompt(pair, m, news, calendar, session);
+  let lastError = '';
+
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await callGeminiModel(geminiKey, model, prompt);
+      } catch(e) {
+        lastError = e.message;
+        const isHighDemand = e.message.includes('high demand') || e.message.includes('overloaded') || e.message.includes('503');
+        const isDeprecated = e.message.includes('no longer available') || e.message.includes('deprecated') || e.message.includes('404');
+        if (isDeprecated) break;
+        if (isHighDemand && attempt < 2) {
+          await new Promise(res => setTimeout(res, 2000 * (attempt + 1)));
           continue;
         }
-        throw new Error(d.error.message);
+        break;
       }
-      return extractJSON(d.candidates?.[0]?.content?.parts?.[0]?.text || '');
-    } catch(e) {
-      if (i === retries) throw e;
-      await new Promise(res => setTimeout(res, 2000 * (i+1)));
     }
   }
+  throw new Error('Gemini nicht verfuegbar: ' + lastError);
 }
 
 async function callGPT(openaiKey, pair, m, news, calendar, session) {
