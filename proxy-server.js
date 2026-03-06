@@ -386,23 +386,29 @@ app.post('/analyze', async (req, res) => {
     const { pair, geminiKey, openaiKey, twelveKey, finnhubKey } = req.body;
     const session = getSession(new Date().getUTCHours());
 
-    // ✅ NUR 1x Daten holen für ALLE KIs
-    const [market, news, calendar] = await Promise.all([
+    // NUR 1x Daten holen für ALLE KIs
+    const [market, newsObj, calendar] = await Promise.all([
       getLiveMarketData(pair, twelveKey),
       getLiveNews(pair, finnhubKey),
       getEconomicCalendar(finnhubKey)
     ]);
 
+    // News als String mit Sentiment für Prompts
+    const newsText = newsObj && newsObj.text 
+      ? `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`
+      : 'Keine News verfuegbar | GESAMT-SENTIMENT: NEUTRAL (Score: 0)';
+    const newsDisplay = newsObj && newsObj.text ? newsObj.text : 'Keine News verfuegbar';
+
     // Alle KI Calls gleichzeitig mit denselben Daten
     const aiCalls = [
-      callClaude(pair, market, news, calendar, session)
-        .then(r => ({ ...r, ai:'claude', currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:news.substring(0,120) }))
+      callClaude(pair, market, newsText, calendar, session)
+        .then(r => ({ ...r, ai:'claude', currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:newsDisplay.substring(0,150) }))
         .catch(e => ({ ai:'claude', error: e.message }))
     ];
 
     if (geminiKey) {
       aiCalls.push(
-        callGemini(geminiKey, pair, market, news, calendar, session)
+        callGemini(geminiKey, pair, market, newsText, calendar, session)
           .then(r => ({ ...r, ai:'gemini', currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h }))
           .catch(e => ({ ai:'gemini', error: e.message }))
       );
@@ -410,7 +416,7 @@ app.post('/analyze', async (req, res) => {
 
     if (openaiKey) {
       aiCalls.push(
-        callGPT(openaiKey, pair, market, news, calendar, session)
+        callGPT(openaiKey, pair, market, newsText, calendar, session)
           .then(r => ({ ...r, ai:'openai', currentPrice:market.currentPrice, rsi:market.rsi }))
           .catch(e => ({ ai:'openai', error: e.message }))
       );
