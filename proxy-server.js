@@ -435,9 +435,9 @@ app.post('/analyze', async (req, res) => {
     });
 
     // News Sentiment aus newsObj holen falls vorhanden
-    const newsText = typeof newsObj === 'object' ? newsObj.text : news;
-    const newsSentiment = typeof newsObj === 'object' ? newsObj.sentiment : 'NEUTRAL';
-    const newsScore = typeof newsObj === 'object' ? newsObj.score : '0';
+    const newsText = (newsObj && newsObj.text) ? newsObj.text : 'Keine News verfuegbar';
+    const newsSentiment = (newsObj && newsObj.sentiment) ? newsObj.sentiment : 'NEUTRAL';
+    const newsScore = (newsObj && newsObj.score) ? newsObj.score : '0';
 
     res.json({
       market: { currentPrice: market.currentPrice, rsi: market.rsi, ema20: market.ema20, ema50_4h: market.ema50_4h },
@@ -465,7 +465,7 @@ app.post('/claude', async (req, res) => {
     const [market, newsObj, calendar] = await Promise.all([getLiveMarketData(pair,twelveKey), getLiveNews(pair,finnhubKey), getEconomicCalendar(finnhubKey)]);
     const newsText = `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`;
     const result = await callClaude(pair, market, newsText, calendar, session);
-    res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:newsObj.text.substring(0,150) });
+    res.json({ ...result, currentPrice:market.currentPrice, rsi:market.rsi, ema20:market.ema20, ema50_4h:market.ema50_4h, news:(newsObj&&newsObj.text?newsObj.text:"").substring(0,150) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
