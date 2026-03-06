@@ -232,8 +232,14 @@ STRIKTE REGELN:
 - Nur MIT 4H Trend traden, NIEMALS dagegen
 - Bei RSI > 70 → kein BUY, bei RSI < 30 → kein SELL
 
+Berechne SL und TP als EXAKTE PREISZAHLEN:
+- BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips (min 1:2 RRR)
+- SELL: SL = Entry plus 10-15 Pips, TP = Entry minus 20-30 Pips (min 1:2 RRR)
+- Bei NEUTRAL: sl = "0", tp = "0"
+- Pips für JPY Paare = 0.10, für andere = 0.0010
+
 Antworte NUR mit diesem JSON, kein Markdown, kein Text davor/danach:
-{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"exakter SL Preis","tp":"exakter TP Preis","confidence":8,"reason":"3 präzise Sätze auf Deutsch: CB-Divergenz + 4H Trend + 15min Setup"}`;
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"ZAHL wie 1.15450","tp":"ZAHL wie 1.16050","confidence":8,"reason":"3 präzise Sätze auf Deutsch: CB-Divergenz + 4H Trend + 15min Setup"}`;
 }
 
 function geminiPrompt(pair, m, news, calendar, session) {
@@ -268,8 +274,14 @@ STRIKTE REGELN:
 - Bei High-Impact Events → NEUTRAL
 - RSI > 70 → kein BUY, RSI < 30 → kein SELL
 
-Antworte NUR mit diesem JSON, kein Markdown:
-{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"SL hinter Swing","tp":"TP Liquiditätszone","confidence":8,"reason":"3 präzise Sätze auf Deutsch: EMA Stack + RSI + Price Action aus echten Kerzen"}`;
+Berechne SL und TP als EXAKTE PREISZAHLEN basierend auf den Kerzen:
+- BUY: SL = letztes Swing Low minus 2 Pips, TP = nächster Widerstand
+- SELL: SL = letztes Swing High plus 2 Pips, TP = nächste Unterstützung
+- SL max 15 Pips vom Entry, TP min 30 Pips (1:2 RRR)
+- Bei NEUTRAL: sl und tp = "0"
+
+Antworte NUR mit diesem JSON, kein Markdown, keine Erklärungen:
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"EXAKTER PREIS als Zahl z.B. 1.15650","tp":"EXAKTER PREIS als Zahl z.B. 1.16250","confidence":8,"reason":"3 präzise Sätze auf Deutsch: EMA Stack + RSI + Price Action"}`;
 }
 
 function gptPrompt(pair, m, news, calendar, session) {
@@ -303,8 +315,14 @@ STRIKTE REGELN:
 - Bei unklarem Sentiment → NEUTRAL
 - Sentiment muss 4H Trend bestätigen
 
+Berechne SL und TP als EXAKTE PREISZAHLEN:
+- BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips
+- SELL: SL = Entry plus 10-15 Pips, TP = Entry minus 20-30 Pips
+- Bei NEUTRAL: sl = "0", tp = "0"
+- Pips für JPY Paare = 0.10, für andere Paare = 0.0010
+
 Antworte NUR mit diesem JSON, kein Markdown:
-{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"SL Preis","tp":"TP Preis","confidence":8,"reason":"3 präzise Sätze auf Deutsch: News-Sentiment + Risk-Umfeld + 4H Confluence"}`;
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"ZAHL wie 1.15450","tp":"ZAHL wie 1.16050","confidence":8,"reason":"3 präzise Sätze auf Deutsch: News-Sentiment + Risk-Umfeld + 4H Confluence"}`;
 }
 
 // ── KI CALLS mit Auto-Retry ────────────────────────────────────
