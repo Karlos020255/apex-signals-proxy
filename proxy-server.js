@@ -84,53 +84,166 @@ async function getLiveNews(pair, finnhubKey) {
 }
 
 async function getEconomicCalendar(finnhubKey) {
-  if (!finnhubKey) return 'Kein Finnhub Key';
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const r = await fetch(`https://finnhub.io/api/v1/calendar/economic?from=${today}&to=${today}&token=${finnhubKey}`);
-    const d = await r.json();
-    const events = d.economicCalendar || [];
-    const highImpact = events.filter(e => e.impact === 'high').slice(0,5)
-      .map(e => `${e.time||''} ${e.country||''} ${e.event||''}`).join(' | ');
-    return highImpact || 'Keine High-Impact Events heute';
-  } catch(e) { return 'Kalender nicht verfuegbar'; }
+    // Forexfactory öffentlicher Kalender als JSON (kostenlos, keine API nötig)
+    const today = new Date();
+    const yyyy = today.getUTCFullYear();
+    const mm = String(today.getUTCMonth()+1).padStart(2,'0');
+    const dd = String(today.getUTCDate()).padStart(2,'0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+
+    // Fallback: Finnhub versuchen
+    if (finnhubKey) {
+      try {
+        const r = await fetch(`https://finnhub.io/api/v1/calendar/economic?from=${dateStr}&to=${dateStr}&token=${finnhubKey}`);
+        const d = await r.json();
+        // Finnhub gibt verschiedene Feldnamen zurück - alles prüfen
+        const raw = d.economicCalendar || d.economic_calendar || d.data || d.result || [];
+        if (Array.isArray(raw) && raw.length > 0) {
+          const highImpact = raw
+            .filter(e => {
+              const imp = (e.impact||e.importance||'').toString().toLowerCase();
+              return imp === 'high' || imp === '3' || imp === 'red';
+            })
+            .slice(0,5)
+            .map(e => {
+              const time = e.time || e.datetime || '';
+              const country = e.country || e.unit || '';
+              const event = e.event || e.name || e.indicator || '';
+              return `${time} ${country} ${event}`.trim();
+            })
+            .filter(s => s.length > 2)
+            .join(' | ');
+          if (highImpact) return highImpact;
+        }
+      } catch(fe) {}
+    }
+
+    // Fallback: Bekannte High-Impact Events heute manuell einschätzen
+    const hour = today.getUTCHours();
+    const dayOfWeek = today.getUTCDay(); // 0=So, 1=Mo, 5=Fr
+    
+    // Freitag = NFP möglicher Tag (1. Freitag im Monat)
+    if (dayOfWeek === 5 && dd <= 7) {
+      return `${dateStr} 13:30 USD Non-Farm Payrolls (HIGH IMPACT - möglicherweise heute!)`;
+    }
+    // Mittwoch = FOMC möglich
+    if (dayOfWeek === 3) {
+      return `Kein bestätigter High-Impact Event gefunden - Kalender auf forexfactory.com prüfen`;
+    }
+    
+    return 'Keine High-Impact Events bestätigt - forexfactory.com für genauen Kalender';
+  } catch(e) { return 'Kalender temporär nicht verfuegbar'; }
 }
 
 // ── PROMPTS ────────────────────────────────────────────────────
 function claudePrompt(pair, m, news, calendar, session) {
-  return `Du bist Senior Forex Makro-Analyst (Goldman Sachs, 20 Jahre).
-Pair: ${pair} | Session: ${session}
-LIVE MARKTDATEN: Preis=${m.currentPrice} RSI=${m.rsi} EMA20=${m.ema20} EMA50_4H=${m.ema50_4h}
-15min Kerzen: ${m.candles15}
-4H Kerzen: ${m.candles4h}
-NEWS: ${news}
-HIGH-IMPACT EVENTS: ${calendar}
-Analysiere: Zentralbank-Divergenz, Geopolitik, 4H Trend, 15min Einstieg, News-Impact.
-Regeln: SL max 15 Pips, TP min 1:2 RRR, bei High-Impact Events -> NEUTRAL.
-NUR JSON: {"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"Preis","tp":"Preis","confidence":8,"reason":"2-3 Saetze Deutsch"}`;
+  const base = pair.split('/')[0];
+  const quote = pair.split('/')[1];
+  return `Du bist Senior Forex Makro-Analyst bei Goldman Sachs mit 20 Jahren Erfahrung.
+Spezialisierung: Zentralbank-Politik, Makroökonomie, Geopolitik, 15min Scalping mit 4H Confluence.
+
+PAIR: ${pair} | SESSION: ${session} | DATUM: ${new Date().toLocaleDateString('de-DE')}
+
+LIVE MARKTDATEN (Twelve Data):
+- Aktueller Preis: ${m.currentPrice}
+- RSI 14 (15min): ${m.rsi} ${parseFloat(m.rsi) > 70 ? '← ÜBERKAUFT' : parseFloat(m.rsi) < 30 ? '← ÜBERVERKAUFT' : '← NEUTRAL'}
+- EMA 20 (15min): ${m.ema20} ${parseFloat(m.currentPrice) > parseFloat(m.ema20) ? '← Preis ÜBER EMA20 (bullish)' : '← Preis UNTER EMA20 (bearish)'}
+- EMA 50 (4H): ${m.ema50_4h} ${parseFloat(m.ema20) > parseFloat(m.ema50_4h) ? '← EMA20 > EMA50 (4H bullish)' : '← EMA20 < EMA50 (4H bearish)'}
+- 15min Kerzen: ${m.candles15}
+- 4H Kerzen: ${m.candles4h}
+
+AKTUELLE NEWS (${base}/${quote}): ${news}
+HIGH-IMPACT EVENTS HEUTE: ${calendar}
+
+ANALYSE-AUFGABE:
+1. ZENTRALBANK: Welche CB ist hawkisher? ${base} oder ${quote} CB aktueller Zinspfad?
+2. GEOPOLITIK: USD Safe-Haven Nachfrage? Risikoumfeld?
+3. 4H TREND: Aus den 4H Kerzen - klar bullish, bearish oder seitwärts?
+4. 15MIN SETUP: EMA20 vs Preis, RSI Momentum - guter Scalp-Einstieg?
+5. NEWS FILTER: Unterstützt die aktuelle News das Signal oder widerspricht sie?
+6. SESSION CHECK: Ist ${session} optimal für ${pair}? (ASIEN = meistens NEUTRAL für EUR/GBP Paare)
+
+STRIKTE REGELN:
+- SL: max 15 Pips vom Entry
+- TP: mindestens 1:2 RRR (also min 30 Pips bei 15 Pip SL)
+- Bei High-Impact Events in nächsten 30min → IMMER NEUTRAL
+- Nur MIT 4H Trend traden, NIEMALS dagegen
+- Bei RSI > 70 → kein BUY, bei RSI < 30 → kein SELL
+
+Antworte NUR mit diesem JSON, kein Markdown, kein Text davor/danach:
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"exakter SL Preis","tp":"exakter TP Preis","confidence":8,"reason":"3 präzise Sätze auf Deutsch: CB-Divergenz + 4H Trend + 15min Setup"}`;
 }
 
 function geminiPrompt(pair, m, news, calendar, session) {
-  return `Forex technischer Analyst. Pair: ${pair} | Session: ${session}
-LIVE MARKTDATEN: Preis=${m.currentPrice} RSI=${m.rsi} EMA20=${m.ema20} EMA50_4H=${m.ema50_4h}
-15min Kerzen: ${m.candles15}
-4H Kerzen: ${m.candles4h}
+  return `Du bist professioneller Forex Technischer Analyst mit Fokus auf Price Action und Smart Money Concepts.
+Spezialisierung: EMA Analyse, RSI, Break of Structure, Liquiditätszonen, 15min Scalping mit 4H Confluence.
+
+PAIR: ${pair} | SESSION: ${session}
+
+LIVE MARKTDATEN (Twelve Data - echte Kerzen):
+- Aktueller Preis: ${m.currentPrice}
+- RSI 14 (15min): ${m.rsi} ${parseFloat(m.rsi) > 70 ? '← ÜBERKAUFT - kein BUY!' : parseFloat(m.rsi) < 30 ? '← ÜBERVERKAUFT - kein SELL!' : '← im Trading-Bereich'}
+- EMA 20 (15min): ${m.ema20}
+- EMA 50 (4H): ${m.ema50_4h}
+- 15min Kerzen (neueste zuerst): ${m.candles15}
+- 4H Kerzen (neueste zuerst): ${m.candles4h}
+
 NEWS: ${news}
 HIGH-IMPACT EVENTS: ${calendar}
-Analysiere: EMA Stack 4H+15min, RSI Momentum, Price Action, Key Levels.
-Regeln: SL max 15 Pips, TP min 1:2 RRR.
-NUR JSON: {"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"Preis","tp":"Preis","confidence":8,"reason":"2-3 Saetze Deutsch"}`;
+
+TECHNISCHE ANALYSE:
+1. EMA STACK: EMA20(15min)=${m.ema20} vs EMA50(4H)=${m.ema50_4h} → bullish oder bearish Stack?
+2. RSI MOMENTUM: RSI ${m.rsi} → Momentum steigend oder fallend? Divergenz?
+3. PRICE ACTION: Aus den 15min Kerzen - letzte Kerzenformation? Engulfing? Pin Bar?
+4. 4H STRUKTUR: Aus den 4H Kerzen - Higher Highs/Lower Lows? Trend klar?
+5. KEY LEVELS: Wo ist nächste Unterstützung/Widerstand basierend auf den Kerzen?
+6. ENTRY QUALITÄT: Ist jetzt ein optimaler 15min Einstieg im 4H Trend?
+
+STRIKTE REGELN:
+- SL hinter letztem Swing: max 15 Pips
+- TP zur nächsten Liquiditätszone: min 1:2 RRR
+- Nur Einstieg wenn EMA Stack UND RSI UND Price Action übereinstimmen
+- Bei High-Impact Events → NEUTRAL
+- RSI > 70 → kein BUY, RSI < 30 → kein SELL
+
+Antworte NUR mit diesem JSON, kein Markdown:
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"SL hinter Swing","tp":"TP Liquiditätszone","confidence":8,"reason":"3 präzise Sätze auf Deutsch: EMA Stack + RSI + Price Action aus echten Kerzen"}`;
 }
 
 function gptPrompt(pair, m, news, calendar, session) {
-  return `Forex Sentiment-Analyst. Pair: ${pair} | Session: ${session}
-LIVE MARKTDATEN: Preis=${m.currentPrice} RSI=${m.rsi} EMA50_4H=${m.ema50_4h}
-4H Kerzen: ${m.candles4h}
-NEWS: ${news}
-HIGH-IMPACT EVENTS: ${calendar}
-Analysiere: Risk-on/off, DXY, News-Sentiment, 4H+15min Momentum.
-Regeln: Kein Trade 30min vor High-Impact Events, SL max 15 Pips, TP 1:2-1:3 RRR.
-NUR JSON: {"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"Preis","tp":"Preis","confidence":8,"reason":"2-3 Saetze Deutsch"}`;
+  const base = pair.split('/')[0];
+  const quote = pair.split('/')[1];
+  return `Du bist quantitativer Forex Sentiment-Analyst mit Fokus auf News-Trading und Intermarket-Analyse.
+Spezialisierung: Marktsentiment, COT-Daten, News-Impact, DXY Korrelation, 15min Scalping.
+
+PAIR: ${pair} | SESSION: ${session}
+
+LIVE MARKTDATEN:
+- Aktueller Preis: ${m.currentPrice}
+- RSI 14 (15min): ${m.rsi}
+- EMA 50 (4H): ${m.ema50_4h}
+- 4H Kerzen: ${m.candles4h}
+
+AKTUELLE NEWS: ${news}
+HIGH-IMPACT EVENTS HEUTE: ${calendar}
+
+SENTIMENT ANALYSE:
+1. NEWS SENTIMENT: Ist die aktuelle News bullish oder bearish für ${base}? Für ${quote}?
+2. RISK UMFELD: Risk-on (gut für AUD/NZD/EUR) oder Risk-off (gut für USD/JPY/CHF)?
+3. DXY: USD stark oder schwach? Korrelation zu ${pair}?
+4. INTERMARKET: Gold, Öl, Anleihenrenditen - was sagen sie über ${pair}?
+5. COT POSITION: Sind Großspekulanten Long oder Short in ${base}?
+6. 4H CONFLUENCE: Passt das Sentiment zum 4H Trend aus den Kerzen?
+
+STRIKTE REGELN:
+- Kein Trade 30min vor/nach roten News Events
+- SL max 15 Pips, TP 1:2 bis 1:3 RRR
+- Bei unklarem Sentiment → NEUTRAL
+- Sentiment muss 4H Trend bestätigen
+
+Antworte NUR mit diesem JSON, kein Markdown:
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"SL Preis","tp":"TP Preis","confidence":8,"reason":"3 präzise Sätze auf Deutsch: News-Sentiment + Risk-Umfeld + 4H Confluence"}`;
 }
 
 // ── KI CALLS mit Auto-Retry ────────────────────────────────────
