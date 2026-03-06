@@ -440,14 +440,12 @@ app.post('/analyze', async (req, res) => {
       return r;
     });
 
-    // News Sentiment aus newsObj holen falls vorhanden
-    const newsText = (newsObj && newsObj.text) ? newsObj.text : 'Keine News verfuegbar';
     const newsSentiment = (newsObj && newsObj.sentiment) ? newsObj.sentiment : 'NEUTRAL';
     const newsScore = (newsObj && newsObj.score) ? newsObj.score : '0';
 
     res.json({
       market: { currentPrice: market.currentPrice, rsi: market.rsi, ema20: market.ema20, ema50_4h: market.ema50_4h },
-      news: newsText,
+      news: newsDisplay,
       newsSentiment,
       newsScore,
       calendar,
