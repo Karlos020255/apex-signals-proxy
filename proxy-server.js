@@ -176,15 +176,24 @@ async function getEconomicCalendar(finnhubKey) {
     const dayOfWeek = today.getUTCDay(); // 0=So, 1=Mo, 5=Fr
     
     // Freitag = NFP möglicher Tag (1. Freitag im Monat)
-    if (dayOfWeek === 5 && dd <= 7) {
-      return `${dateStr} 13:30 USD Non-Farm Payrolls (HIGH IMPACT - möglicherweise heute!)`;
-    }
-    // Mittwoch = FOMC möglich
-    if (dayOfWeek === 3) {
-      return `Kein bestätigter High-Impact Event gefunden - Kalender auf forexfactory.com prüfen`;
+    // Nur VOR 13:30 UTC warnen, danach ist NFP vorbei
+    if (dayOfWeek === 5 && parseInt(dd) <= 7) {
+      const utcHour = today.getUTCHours();
+      const utcMin = today.getUTCMinutes();
+      const minutesSince1330 = (utcHour * 60 + utcMin) - (13 * 60 + 30);
+      if (minutesSince1330 < 0) {
+        // Vor NFP → warnen
+        return `${dateStr} 13:30 USD Non-Farm Payrolls (HIGH IMPACT - in ${Math.abs(minutesSince1330)} Minuten!)`;
+      } else if (minutesSince1330 < 15) {
+        // Direkt nach NFP → noch warten
+        return `${dateStr} 13:30 USD NFP gerade veröffentlicht - noch ${15 - minutesSince1330} Minuten warten!`;
+      } else {
+        // 15+ Minuten nach NFP → frei
+        return 'NFP bereits veröffentlicht - Markt stabilisiert. Trading wieder möglich.';
+      }
     }
     
-    return 'Keine High-Impact Events bestätigt - forexfactory.com für genauen Kalender';
+    return 'Keine High-Impact Events - Trading möglich';
   } catch(e) { return 'Kalender temporär nicht verfuegbar'; }
 }
 
@@ -407,11 +416,34 @@ app.post('/analyze', async (req, res) => {
       );
     }
 
-    const results = await Promise.all(aiCalls);
+    const rawResults = await Promise.all(aiCalls);
+
+    // ✅ KONFIDENZ-FILTER: Signale unter 7/10 → automatisch NEUTRAL
+    const results = rawResults.map(r => {
+      if (r.error) return r;
+      const conf = parseInt(r.confidence) || 0;
+      if (r.signal !== 'NEUTRAL' && conf < 7) {
+        return {
+          ...r,
+          signal: 'NEUTRAL',
+          originalSignal: r.signal,
+          filteredBy: 'KONFIDENZ',
+          reason: `[FILTER ${conf}/10 < 7/10] ${r.reason}`
+        };
+      }
+      return r;
+    });
+
+    // News Sentiment aus newsObj holen falls vorhanden
+    const newsText = typeof newsObj === 'object' ? newsObj.text : news;
+    const newsSentiment = typeof newsObj === 'object' ? newsObj.sentiment : 'NEUTRAL';
+    const newsScore = typeof newsObj === 'object' ? newsObj.score : '0';
 
     res.json({
       market: { currentPrice: market.currentPrice, rsi: market.rsi, ema20: market.ema20, ema50_4h: market.ema50_4h },
-      news,
+      news: newsText,
+      newsSentiment,
+      newsScore,
       calendar,
       results
     });
