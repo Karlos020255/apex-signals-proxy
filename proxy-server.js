@@ -360,7 +360,7 @@ async function callGeminiModel(geminiKey, model, prompt) {
     headers: { 'Content-Type':'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature:0.1, maxOutputTokens:500, responseMimeType:"application/json" }
+      generationConfig: { temperature:0.4, maxOutputTokens:500, responseMimeType:"application/json" }
     })
   });
   const d = await r.json();
