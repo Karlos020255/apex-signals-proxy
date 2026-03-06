@@ -275,13 +275,19 @@ STRIKTE REGELN:
 - RSI > 70 → kein BUY, RSI < 30 → kein SELL
 
 Berechne SL und TP als EXAKTE PREISZAHLEN basierend auf den Kerzen:
-- BUY: SL = letztes Swing Low minus 2 Pips, TP = nächster Widerstand
-- SELL: SL = letztes Swing High plus 2 Pips, TP = nächste Unterstützung
-- SL max 15 Pips vom Entry, TP min 30 Pips (1:2 RRR)
-- Bei NEUTRAL: sl und tp = "0"
+- BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips (1:2 RRR)
+- SELL: SL = Entry plus 10-15 Pips, TP = Entry minus 20-30 Pips (1:2 RRR)
+- Pips: JPY Paare = 0.10, alle anderen = 0.0010
+- Bei NEUTRAL: sl = "0", tp = "0"
 
-Antworte NUR mit diesem JSON, kein Markdown, keine Erklärungen:
-{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"EXAKTER PREIS als Zahl z.B. 1.15650","tp":"EXAKTER PREIS als Zahl z.B. 1.16250","confidence":8,"reason":"3 präzise Sätze auf Deutsch: EMA Stack + RSI + Price Action"}`;
+KONFIDENZ SKALA (sei ehrlich und präzise):
+- 8-10: Alle Indikatoren eindeutig in eine Richtung
+- 6-7: Mehrheit der Indikatoren zeigt Richtung
+- 4-5: Gemischte Signale aber leichte Tendenz
+- 1-3: Nur bei echtem NEUTRAL ohne klare Richtung
+
+Antworte NUR mit diesem JSON, kein Markdown:
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"ZAHL","tp":"ZAHL","confidence":7,"reason":"3 präzise Sätze auf Deutsch: EMA Stack + RSI + Price Action"}`;
 }
 
 function gptPrompt(pair, m, news, calendar, session) {
@@ -318,11 +324,17 @@ STRIKTE REGELN:
 Berechne SL und TP als EXAKTE PREISZAHLEN:
 - BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips
 - SELL: SL = Entry plus 10-15 Pips, TP = Entry minus 20-30 Pips
+- Pips: JPY Paare = 0.10, alle anderen = 0.0010
 - Bei NEUTRAL: sl = "0", tp = "0"
-- Pips für JPY Paare = 0.10, für andere Paare = 0.0010
+
+KONFIDENZ SKALA (sei präzise):
+- 8-10: Klares Signal mit News + Trend + Momentum Bestätigung
+- 6-7: Signal mit 2 von 3 Faktoren bestätigt
+- 4-5: Leichte Tendenz erkennbar
+- 1-3: Echtes NEUTRAL, keine Richtung erkennbar
 
 Antworte NUR mit diesem JSON, kein Markdown:
-{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"ZAHL wie 1.15450","tp":"ZAHL wie 1.16050","confidence":8,"reason":"3 präzise Sätze auf Deutsch: News-Sentiment + Risk-Umfeld + 4H Confluence"}`;
+{"signal":"BUY oder SELL oder NEUTRAL","entry":"${m.currentPrice}","sl":"ZAHL","tp":"ZAHL","confidence":7,"reason":"3 präzise Sätze auf Deutsch: News-Sentiment + Risk-Umfeld + 4H Confluence"}`;
 }
 
 // ── KI CALLS mit Auto-Retry ────────────────────────────────────
@@ -461,17 +473,18 @@ ${text}` }]
 
     const rawResults = await Promise.all(aiCalls);
 
-    // ✅ KONFIDENZ-FILTER: Signale unter 7/10 → automatisch NEUTRAL
+    // KONFIDENZ-FILTER: Nur sehr schwache Signale (unter 4/10) filtern
+    // Gemini und GPT tendieren zu niedrigeren Werten → Filter nicht zu streng
     const results = rawResults.map(r => {
       if (r.error) return r;
       const conf = parseInt(r.confidence) || 0;
-      if (r.signal !== 'NEUTRAL' && conf < 7) {
+      if (r.signal !== 'NEUTRAL' && conf < 4) {
         return {
           ...r,
           signal: 'NEUTRAL',
           originalSignal: r.signal,
           filteredBy: 'KONFIDENZ',
-          reason: `[FILTER ${conf}/10 < 7/10] ${r.reason}`
+          reason: `[FILTER ${conf}/10 < 4/10] ${r.reason}`
         };
       }
       return r;
