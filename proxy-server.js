@@ -176,24 +176,24 @@ async function getEconomicCalendar(finnhubKey) {
     const dayOfWeek = today.getUTCDay(); // 0=So, 1=Mo, 5=Fr
     
     // Freitag = NFP möglicher Tag (1. Freitag im Monat)
-    // Nur VOR 13:30 UTC warnen, danach ist NFP vorbei
     if (dayOfWeek === 5 && parseInt(dd) <= 7) {
-      const utcHour = today.getUTCHours();
-      const utcMin = today.getUTCMinutes();
-      const minutesSince1330 = (utcHour * 60 + utcMin) - (13 * 60 + 30);
-      if (minutesSince1330 < 0) {
-        // Vor NFP → warnen
-        return `${dateStr} 13:30 USD Non-Farm Payrolls (HIGH IMPACT - in ${Math.abs(minutesSince1330)} Minuten!)`;
-      } else if (minutesSince1330 < 15) {
-        // Direkt nach NFP → noch warten
-        return `${dateStr} 13:30 USD NFP gerade veröffentlicht - noch ${15 - minutesSince1330} Minuten warten!`;
+      // NFP ist immer 13:30 UTC
+      const utcNow = today.getUTCHours() * 60 + today.getUTCMinutes();
+      const nfpTime = 13 * 60 + 30; // 13:30 UTC
+      const diff = utcNow - nfpTime; // positiv = nach NFP, negativ = vor NFP
+
+      if (diff < -30) {
+        return `${dateStr} 13:30 UTC USD Non-Farm Payrolls (HIGH IMPACT - in ${Math.abs(diff)} Minuten!)`;
+      } else if (diff >= -30 && diff < 0) {
+        return `${dateStr} 13:30 UTC USD Non-Farm Payrolls (HIGH IMPACT - in ${Math.abs(diff)} Minuten! Kein Trade!)`;
+      } else if (diff >= 0 && diff < 15) {
+        return `NFP gerade veröffentlicht (${diff} Min ago) - noch ${15-diff} Minuten warten!`;
       } else {
-        // 15+ Minuten nach NFP → frei
-        return 'NFP bereits veröffentlicht - Markt stabilisiert. Trading wieder möglich.';
+        return `NFP veröffentlicht um 13:30 UTC - Markt stabilisiert. Trading möglich.`;
       }
     }
-    
-    return 'Keine High-Impact Events - Trading möglich';
+
+    return 'Keine High-Impact Events heute - Trading möglich';
   } catch(e) { return 'Kalender temporär nicht verfuegbar'; }
 }
 
@@ -393,11 +393,30 @@ app.post('/analyze', async (req, res) => {
       getEconomicCalendar(finnhubKey)
     ]);
 
-    // News als String mit Sentiment für Prompts
+    // News übersetzen via Claude
+    async function translateNews(text) {
+      if (!text || text.includes('Keine') || text.includes('verfuegbar')) return text;
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type':'application/json', 'x-api-key':process.env.CLAUDE_API_KEY, 'anthropic-version':'2023-06-01' },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            messages: [{ role: 'user', content: `Übersetze diese Forex News Headlines ins Deutsche. Behalte [BULLISH], [BEARISH], [NEUTRAL] Tags. Nur die Übersetzung, kein Zusatztext:
+${text}` }]
+          })
+        });
+        const d = await r.json();
+        return d.content?.[0]?.text || text;
+      } catch(e) { return text; }
+    }
+
+    const rawNewsDisplay = newsObj && newsObj.text ? newsObj.text : 'Keine News verfuegbar';
+    const newsDisplay = await translateNews(rawNewsDisplay);
     const newsText = newsObj && newsObj.text 
-      ? `${newsObj.text} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`
+      ? `${newsDisplay} | GESAMT-SENTIMENT: ${newsObj.sentiment} (Score: ${newsObj.score})`
       : 'Keine News verfuegbar | GESAMT-SENTIMENT: NEUTRAL (Score: 0)';
-    const newsDisplay = newsObj && newsObj.text ? newsObj.text : 'Keine News verfuegbar';
 
     // Alle KI Calls gleichzeitig mit denselben Daten
     const aiCalls = [
