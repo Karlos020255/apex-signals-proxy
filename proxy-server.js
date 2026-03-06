@@ -259,20 +259,18 @@ LIVE MARKTDATEN (Twelve Data - echte Kerzen):
 NEWS: ${news}
 HIGH-IMPACT EVENTS: ${calendar}
 
-TECHNISCHE ANALYSE:
-1. EMA STACK: EMA20(15min)=${m.ema20} vs EMA50(4H)=${m.ema50_4h} → bullish oder bearish Stack?
-2. RSI MOMENTUM: RSI ${m.rsi} → Momentum steigend oder fallend? Divergenz?
-3. PRICE ACTION: Aus den 15min Kerzen - letzte Kerzenformation? Engulfing? Pin Bar?
-4. 4H STRUKTUR: Aus den 4H Kerzen - Higher Highs/Lower Lows? Trend klar?
-5. KEY LEVELS: Wo ist nächste Unterstützung/Widerstand basierend auf den Kerzen?
-6. ENTRY QUALITÄT: Ist jetzt ein optimaler 15min Einstieg im 4H Trend?
+DEINE AUFGABE - ENTSCHEIDE JETZT:
+Preis ${m.currentPrice} | EMA20: ${m.ema20} | EMA50(4H): ${m.ema50_4h} | RSI: ${m.rsi}
 
-STRIKTE REGELN:
-- SL hinter letztem Swing: max 15 Pips
-- TP zur nächsten Liquiditätszone: min 1:2 RRR
-- Nur Einstieg wenn EMA Stack UND RSI UND Price Action übereinstimmen
-- Bei High-Impact Events → NEUTRAL
-- RSI > 70 → kein BUY, RSI < 30 → kein SELL
+ENTSCHEIDUNGSREGELN:
+→ Preis > EMA20 > EMA50 UND RSI 40-65 = BUY
+→ Preis < EMA20 < EMA50 UND RSI 35-60 = SELL  
+→ EMA20 nahe EMA50 (weniger als 0.0005 Abstand) = NEUTRAL
+→ RSI > 70 = kein BUY | RSI < 30 = kein SELL
+→ High-Impact Event in weniger als 30min = NEUTRAL
+
+WICHTIG: Bei klarem EMA Stack IMMER ein BUY oder SELL geben!
+NEUTRAL nur wenn EMA Stack wirklich unklar oder High-Impact Event!
 
 Berechne SL und TP als EXAKTE PREISZAHLEN basierend auf den Kerzen:
 - BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips (1:2 RRR)
@@ -307,19 +305,19 @@ LIVE MARKTDATEN:
 AKTUELLE NEWS: ${news}
 HIGH-IMPACT EVENTS HEUTE: ${calendar}
 
-SENTIMENT ANALYSE:
-1. NEWS SENTIMENT: Ist die aktuelle News bullish oder bearish für ${base}? Für ${quote}?
-2. RISK UMFELD: Risk-on (gut für AUD/NZD/EUR) oder Risk-off (gut für USD/JPY/CHF)?
-3. DXY: USD stark oder schwach? Korrelation zu ${pair}?
-4. INTERMARKET: Gold, Öl, Anleihenrenditen - was sagen sie über ${pair}?
-5. COT POSITION: Sind Großspekulanten Long oder Short in ${base}?
-6. 4H CONFLUENCE: Passt das Sentiment zum 4H Trend aus den Kerzen?
+DEINE AUFGABE - ENTSCHEIDE JETZT:
+Preis: ${m.currentPrice} | RSI: ${m.rsi} | EMA50(4H): ${m.ema50_4h}
+News: ${news}
 
-STRIKTE REGELN:
-- Kein Trade 30min vor/nach roten News Events
-- SL max 15 Pips, TP 1:2 bis 1:3 RRR
-- Bei unklarem Sentiment → NEUTRAL
-- Sentiment muss 4H Trend bestätigen
+ENTSCHEIDUNGSREGELN:
+→ News BULLISH für ${base} + Preis über EMA50 = BUY
+→ News BEARISH für ${base} + Preis unter EMA50 = SELL
+→ News NEUTRAL aber Preis klar über/unter EMA50 → trotzdem BUY/SELL geben!
+→ Kein High-Impact Event in 30min = NEUTRAL wegen Event
+→ RSI > 75 = kein BUY | RSI < 25 = kein SELL
+
+WICHTIG: Auch ohne eindeutige News IMMER eine Richtung wählen wenn 4H Trend klar!
+NEUTRAL nur bei echtem High-Impact Event oder komplett widersprüchlichen Signalen!
 
 Berechne SL und TP als EXAKTE PREISZAHLEN:
 - BUY: SL = Entry minus 10-15 Pips, TP = Entry plus 20-30 Pips
