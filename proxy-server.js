@@ -197,6 +197,57 @@ async function getEconomicCalendar(finnhubKey) {
   } catch(e) { return 'Kalender temporär nicht verfuegbar'; }
 }
 
+// ── TELEGRAM ALERTS ───────────────────────────────────────────
+const TELEGRAM_TOKEN = '8216425635:AAGH6-HdGfEosMmOjtHh4XOXYVQDYtWpHts';
+const TELEGRAM_CHAT_ID = '1647498717';
+
+async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason, session) {
+  try {
+    const emoji = signal === 'BUY' ? '🟢' : '🔴';
+    const slPips = signal === 'BUY' 
+      ? ((parseFloat(entry) - parseFloat(sl)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1)
+      : ((parseFloat(sl) - parseFloat(entry)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1);
+    const tpPips = signal === 'BUY'
+      ? ((parseFloat(tp) - parseFloat(entry)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1)
+      : ((parseFloat(entry) - parseFloat(tp)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1);
+
+    const msg = `${emoji} *APEX SIGNAL – ${pair}*
+
+` +
+      `📊 Signal: *${signal}*
+` +
+      `💰 Entry: \`${entry}\`
+` +
+      `🛑 Stop Loss: \`${sl}\` (-${slPips} Pips)
+` +
+      `🎯 TP1: \`${tp}\` (+${tpPips} Pips)
+
+` +
+      `📈 Konfidenz: ${confidence}/10
+` +
+      `⏰ Session: ${session}
+
+` +
+      `💬 _${reason}_
+
+` +
+      `⚠️ Kein Anlageberatungs-Tool – Nur Informationszwecke`;
+
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text: msg,
+        parse_mode: 'Markdown'
+      })
+    });
+    console.log('Telegram Alert gesendet:', pair, signal);
+  } catch(e) {
+    console.error('Telegram Fehler:', e.message);
+  }
+}
+
 // ── PROMPTS ────────────────────────────────────────────────────
 function claudePrompt(pair, m, news, calendar, session) {
   const base = pair.split('/')[0];
@@ -411,7 +462,13 @@ async function callGPT(openaiKey, pair, m, news, calendar, session) {
 // Daten werden NUR 1x geholt → spart 66% Credits!
 app.post('/analyze', async (req, res) => {
   try {
-    const { pair, geminiKey, openaiKey, twelveKey, finnhubKey } = req.body;
+    const body = req.body;
+    // Keys aus Request ODER aus Render Environment Variables
+    const pair = body.pair;
+    const geminiKey = body.geminiKey || process.env.GEMINI_KEY;
+    const openaiKey = body.openaiKey || process.env.OPENAI_KEY;
+    const twelveKey = body.twelveKey || process.env.TWELVE_KEY;
+    const finnhubKey = body.finnhubKey || process.env.FINNHUB_KEY;
     const session = getSession(new Date().getUTCHours());
 
     // NUR 1x Daten holen für ALLE KIs
@@ -491,6 +548,20 @@ ${text}` }]
     const newsSentiment = (newsObj && newsObj.sentiment) ? newsObj.sentiment : 'NEUTRAL';
     const newsScore = (newsObj && newsObj.score) ? newsObj.score : '0';
 
+    // ✅ TELEGRAM ALERT: Nur bei Konsens BUY oder SELL
+    const signals = results.filter(r => !r.error).map(r => r.signal);
+    const allBuy = signals.length >= 2 && signals.every(s => s === 'BUY');
+    const allSell = signals.length >= 2 && signals.every(s => s === 'SELL');
+    
+    if (allBuy || allSell) {
+      const masterSignal = allBuy ? 'BUY' : 'SELL';
+      const avgConf = Math.round(results.filter(r => !r.error).reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / results.filter(r => !r.error).length);
+      const firstResult = results.find(r => !r.error && r.signal === masterSignal);
+      if (firstResult && firstResult.sl !== '0' && firstResult.tp !== '0') {
+        sendTelegramAlert(pair, masterSignal, firstResult.entry, firstResult.sl, firstResult.tp, avgConf, firstResult.reason, session);
+      }
+    }
+
     res.json({
       market: { currentPrice: market.currentPrice, rsi: market.rsi, ema20: market.ema20, ema50_4h: market.ema50_4h },
       news: newsDisplay,
@@ -543,6 +614,116 @@ app.post('/openai', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v5.0 — OPTIMIZED'));
+app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v6.0 — AUTO-SCANNER ACTIVE'));
+
+// ── AUTO-SCANNER 24/7 ──────────────────────────────────────────
+const SCAN_PAIRS = ['EUR/USD','GBP/USD','USD/JPY','GBP/JPY','EUR/GBP','AUD/USD','USD/CAD','XAU/USD'];
+const SCAN_INTERVAL = 30 * 60 * 1000; // alle 30 Minuten
+const lastSignals = {}; // Duplikat-Schutz
+
+async function runAutoScan() {
+  const geminiKey = process.env.GEMINI_KEY;
+  const openaiKey = process.env.OPENAI_KEY;
+  const twelveKey = process.env.TWELVE_KEY;
+  const finnhubKey = process.env.FINNHUB_KEY;
+
+  if (!geminiKey || !twelveKey) {
+    console.log('[Scanner] Keys fehlen - überspringe');
+    return;
+  }
+
+  const utcHour = new Date().getUTCHours();
+  const session = getSession(utcHour);
+
+  // Nur London + NY Session (07:00 - 20:00 UTC)
+  if (utcHour < 7 || utcHour > 20) {
+    console.log(`[Scanner] Außerhalb Trading-Stunden (${utcHour} UTC) - überspringe`);
+    return;
+  }
+
+  console.log(`[Scanner] Start - ${SCAN_PAIRS.length} Paare | ${session} | ${new Date().toISOString()}`);
+
+  for (const pair of SCAN_PAIRS) {
+    try {
+      // Gleiche Live-Daten wie manuelle Analyse
+      const [market, newsObj, calendar] = await Promise.all([
+        getLiveMarketData(pair, twelveKey),
+        getLiveNews(pair, finnhubKey),
+        getEconomicCalendar(finnhubKey)
+      ]);
+
+      if (!market || market.currentPrice === 'N/A') {
+        console.log(`[Scanner] ${pair}: Keine Daten`);
+        continue;
+      }
+
+      const newsText = newsObj && newsObj.text
+        ? `${newsObj.text} | SENTIMENT: ${newsObj.sentiment} (${newsObj.score})`
+        : 'Keine News | SENTIMENT: NEUTRAL (0)';
+
+      // Gleiche 3 KIs wie manuelle Analyse
+      const [claudeR, geminiR, gptR] = await Promise.all([
+        callClaude(pair, market, newsText, calendar, session)
+          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message })),
+        callGemini(geminiKey, pair, market, newsText, calendar, session)
+          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message })),
+        callGPT(openaiKey, pair, market, newsText, calendar, session)
+          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message }))
+      ]);
+
+      const results = [claudeR, geminiR, gptR];
+
+      // Gleicher Konfidenz-Filter wie manuell
+      const filtered = results.map(r => {
+        const conf = parseInt(r.confidence) || 0;
+        if (r.signal !== 'NEUTRAL' && conf < 4) return { ...r, signal:'NEUTRAL' };
+        return r;
+      });
+
+      const signals = filtered.map(r => r.signal);
+      const allBuy  = signals.every(s => s === 'BUY');
+      const allSell = signals.every(s => s === 'SELL');
+
+      console.log(`[Scanner] ${pair}: ${signals.join(' | ')}`);
+
+      if (allBuy || allSell) {
+        const masterSignal = allBuy ? 'BUY' : 'SELL';
+        const signalKey = `${pair}-${masterSignal}-${market.currentPrice}`;
+
+        // Duplikat-Schutz: gleiches Signal nicht 2x senden
+        if (lastSignals[pair] === signalKey) {
+          console.log(`[Scanner] ${pair}: Duplikat - bereits gesendet`);
+          continue;
+        }
+        lastSignals[pair] = signalKey;
+
+        const avgConf = Math.round(filtered.reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / filtered.length);
+        const best = filtered.find(r => r.signal === masterSignal);
+
+        console.log(`[Scanner] 🎯 SIGNAL: ${pair} ${masterSignal} | Konfidenz: ${avgConf}/10`);
+
+        if (best && best.sl !== '0' && best.tp !== '0') {
+          await sendTelegramAlert(pair, masterSignal, best.entry || market.currentPrice, best.sl, best.tp, avgConf, best.reason || '', session);
+        }
+      } else {
+        delete lastSignals[pair]; // Reset damit nächster Scan neu prüft
+      }
+
+      // 5 Sekunden Pause zwischen Paaren (Rate Limit Schutz)
+      await new Promise(r => setTimeout(r, 5000));
+
+    } catch(e) {
+      console.error(`[Scanner] Fehler ${pair}:`, e.message);
+    }
+  }
+  console.log(`[Scanner] Durchlauf fertig - nächster in 30min`);
+}
+
+// 15 Sekunden nach Server-Start beginnen, dann alle 30min
+setTimeout(() => {
+  runAutoScan();
+  setInterval(runAutoScan, SCAN_INTERVAL);
+}, 15000);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
