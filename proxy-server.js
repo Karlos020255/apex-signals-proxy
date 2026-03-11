@@ -205,22 +205,25 @@ async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason
   try {
     const emoji = signal === 'BUY' ? '🟢' : '🔴';
     const pipFactor = pair.includes('JPY') ? 100 : 10000;
+    const dec = pair.includes('JPY') ? 3 : 5;
     const entryF = parseFloat(entry);
     const slF    = parseFloat(sl);
-    const tp1F   = parseFloat(tp); // TP1 = 1:1 (bereits vom KI berechnet = 15 Pips)
 
-    // TP2 = 1:2 (doppelter Abstand von SL)
+    // SL Distanz berechnen
     const slDistance = Math.abs(entryF - slF);
+
+    // TP1 = 1:1 (gleicher Abstand wie SL)
+    const tp1F = signal === 'BUY' ? entryF + slDistance : entryF - slDistance;
+    // TP2 = 1:2 (doppelter Abstand wie SL)
     const tp2F = signal === 'BUY' ? entryF + (slDistance * 2) : entryF - (slDistance * 2);
 
     const slPips  = (slDistance * pipFactor).toFixed(1);
-    const tp1Pips = (Math.abs(tp1F - entryF) * pipFactor).toFixed(1);
+    const tp1Pips = (slDistance * pipFactor).toFixed(1);
     const tp2Pips = (slDistance * 2 * pipFactor).toFixed(1);
 
-    // Auf 5 Dezimalstellen runden (3 für JPY)
-    const dec = pair.includes('JPY') ? 3 : 5;
     const tp2Str = tp2F.toFixed(dec);
 
+    const maxSpread = MAX_SPREAD[pair] || 2.0;
     const msg = `${emoji} *APEX SIGNAL – ${pair}*
 
 ` +
@@ -242,6 +245,8 @@ async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason
       `📈 Konfidenz: ${confidence}/10
 ` +
       `⏰ Session: ${session}
+` +
+      `📉 Max. Spread: ${maxSpread} Pips
 
 ` +
       `💬 _${reason}_
@@ -634,6 +639,34 @@ app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v6.0 — AUTO-SCANNER AC
 
 // ── AUTO-SCANNER 24/7 ──────────────────────────────────────────
 const SCAN_PAIRS = ['EUR/USD','GBP/USD','USD/JPY','GBP/JPY','EUR/GBP','AUD/USD','USD/CAD','XAU/USD'];
+
+// Max erlaubter Spread pro Pair (in Pips)
+const MAX_SPREAD = {
+  'EUR/USD': 1.5,
+  'GBP/USD': 2.0,
+  'USD/JPY': 1.5,
+  'GBP/JPY': 3.0,
+  'EUR/GBP': 1.5,
+  'AUD/USD': 2.0,
+  'USD/CAD': 2.5,
+  'XAU/USD': 35.0  // Gold in Pips anders
+};
+
+function checkSpread(pair, candles) {
+  try {
+    if (!candles || candles.length === 0) return { ok: true, spread: 0 };
+    // Spread aus letzter Kerze schätzen (High - Low der kleinsten Kerze)
+    const lastCandle = candles[0];
+    const high = parseFloat(lastCandle.high);
+    const low  = parseFloat(lastCandle.low);
+    const pipFactor = pair.includes('JPY') ? 100 : (pair.includes('XAU') ? 10 : 10000);
+    const spread = ((high - low) * pipFactor * 0.1).toFixed(1); // Schätzung
+    const maxAllowed = MAX_SPREAD[pair] || 2.0;
+    return { ok: parseFloat(spread) <= maxAllowed, spread: parseFloat(spread) };
+  } catch(e) {
+    return { ok: true, spread: 0 };
+  }
+}
 const SCAN_INTERVAL = 30 * 60 * 1000; // alle 30 Minuten
 const lastSignals = {}; // Duplikat-Schutz
 
@@ -670,6 +703,13 @@ async function runAutoScan() {
 
       if (!market || market.currentPrice === 'N/A') {
         console.log(`[Scanner] ${pair}: Keine Daten`);
+        continue;
+      }
+
+      // Spread Check
+      const spreadCheck = checkSpread(pair, market.candles15 ? JSON.parse('[' + market.candles15.split('][').join('],[') + ']') : []);
+      if (!spreadCheck.ok) {
+        console.log(`[Scanner] ${pair}: Spread ${spreadCheck.spread} Pips zu hoch - überspringe`);
         continue;
       }
 
