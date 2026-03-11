@@ -204,23 +204,39 @@ const TELEGRAM_CHAT_ID = '1647498717';
 async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason, session) {
   try {
     const emoji = signal === 'BUY' ? '🟢' : '🔴';
-    const slPips = signal === 'BUY' 
-      ? ((parseFloat(entry) - parseFloat(sl)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1)
-      : ((parseFloat(sl) - parseFloat(entry)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1);
-    const tpPips = signal === 'BUY'
-      ? ((parseFloat(tp) - parseFloat(entry)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1)
-      : ((parseFloat(entry) - parseFloat(tp)) * (pair.includes('JPY') ? 100 : 10000)).toFixed(1);
+    const pipFactor = pair.includes('JPY') ? 100 : 10000;
+    const entryF = parseFloat(entry);
+    const slF    = parseFloat(sl);
+    const tp1F   = parseFloat(tp); // TP1 = 1:1 (bereits vom KI berechnet = 15 Pips)
+
+    // TP2 = 1:2 (doppelter Abstand von SL)
+    const slDistance = Math.abs(entryF - slF);
+    const tp2F = signal === 'BUY' ? entryF + (slDistance * 2) : entryF - (slDistance * 2);
+
+    const slPips  = (slDistance * pipFactor).toFixed(1);
+    const tp1Pips = (Math.abs(tp1F - entryF) * pipFactor).toFixed(1);
+    const tp2Pips = (slDistance * 2 * pipFactor).toFixed(1);
+
+    // Auf 5 Dezimalstellen runden (3 für JPY)
+    const dec = pair.includes('JPY') ? 3 : 5;
+    const tp2Str = tp2F.toFixed(dec);
 
     const msg = `${emoji} *APEX SIGNAL – ${pair}*
 
 ` +
       `📊 Signal: *${signal}*
 ` +
-      `💰 Entry: \`${entry}\`
+      `💰 Entry: \`${entryF.toFixed(dec)}\`
 ` +
-      `🛑 Stop Loss: \`${sl}\` (-${slPips} Pips)
+      `🛑 Stop Loss: \`${slF.toFixed(dec)}\` (-${slPips} Pips)
+
 ` +
-      `🎯 TP1: \`${tp}\` (+${tpPips} Pips)
+      `🎯 TP1: \`${tp1F.toFixed(dec)}\` (+${tp1Pips} Pips) → 0.5 Lot schließen
+` +
+      `🏆 TP2: \`${tp2Str}\` (+${tp2Pips} Pips) → Rest schließen
+
+` +
+      `💡 Bei TP1 → SL auf Breakeven setzen!
 
 ` +
       `📈 Konfidenz: ${confidence}/10
@@ -688,6 +704,15 @@ async function runAutoScan() {
 
       if (allBuy || allSell) {
         const masterSignal = allBuy ? 'BUY' : 'SELL';
+        const avgConf = Math.round(filtered.reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / filtered.length);
+
+        // Konfidenz Filter: nur ab 7/10 senden
+        if (avgConf < 7) {
+          console.log(`[Scanner] ${pair}: Konfidenz ${avgConf}/10 zu niedrig - kein Alert`);
+          delete lastSignals[pair];
+          continue;
+        }
+
         const signalKey = `${pair}-${masterSignal}-${market.currentPrice}`;
 
         // Duplikat-Schutz: gleiches Signal nicht 2x senden
@@ -697,10 +722,9 @@ async function runAutoScan() {
         }
         lastSignals[pair] = signalKey;
 
-        const avgConf = Math.round(filtered.reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / filtered.length);
         const best = filtered.find(r => r.signal === masterSignal);
 
-        console.log(`[Scanner] 🎯 SIGNAL: ${pair} ${masterSignal} | Konfidenz: ${avgConf}/10`);
+        console.log(`[Scanner] 🎯 SIGNAL: ${pair} ${masterSignal} | Konfidenz: ${avgConf}/10 ✅`);
 
         if (best && best.sl !== '0' && best.tp !== '0') {
           await sendTelegramAlert(pair, masterSignal, best.entry || market.currentPrice, best.sl, best.tp, avgConf, best.reason || '', session);
@@ -719,10 +743,29 @@ async function runAutoScan() {
   console.log(`[Scanner] Durchlauf fertig - nächster in 30min`);
 }
 
-// 15 Sekunden nach Server-Start beginnen, dann alle 30min
-setTimeout(() => {
-  runAutoScan();
-  setInterval(runAutoScan, SCAN_INTERVAL);
+// Smarter Scan: 15min während aktiver Sessions, 30min außerhalb
+function getSmartInterval() {
+  const utcHour = new Date().getUTCHours();
+  // 07:00 - 16:00 UTC = London + NY Overlap (09:00 - 18:00 DE)
+  if (utcHour >= 7 && utcHour <= 16) return 15 * 60 * 1000; // 15min
+  return 30 * 60 * 1000; // 30min außerhalb
+}
+
+let scanTimer = null;
+function scheduleNextScan() {
+  const interval = getSmartInterval();
+  const minutes = interval / 60000;
+  console.log(`[Scanner] Nächster Scan in ${minutes} Minuten`);
+  scanTimer = setTimeout(async () => {
+    await runAutoScan();
+    scheduleNextScan(); // Rekursiv → passt Intervall jedes Mal an
+  }, interval);
+}
+
+// 15 Sekunden nach Server-Start beginnen
+setTimeout(async () => {
+  await runAutoScan();
+  scheduleNextScan();
 }, 15000);
 
 const PORT = process.env.PORT || 3000;
