@@ -802,6 +802,17 @@ function scheduleNextScan() {
   }, interval);
 }
 
+// Keep-Alive: verhindert dass Render einschläft
+const PROXY_URL = process.env.RENDER_EXTERNAL_URL || 'https://apex-signals-proxy.onrender.com';
+setInterval(async () => {
+  try {
+    await fetch(`${PROXY_URL}/`);
+    console.log('[Keep-Alive] Ping gesendet');
+  } catch(e) {
+    console.log('[Keep-Alive] Ping fehlgeschlagen:', e.message);
+  }
+}, 10 * 60 * 1000); // Alle 10 Minuten pingen
+
 // 15 Sekunden nach Server-Start beginnen
 setTimeout(async () => {
   await runAutoScan();
