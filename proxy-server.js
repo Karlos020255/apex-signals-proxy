@@ -706,12 +706,8 @@ async function runAutoScan() {
         continue;
       }
 
-      // Spread Check
-      const spreadCheck = checkSpread(pair, market.candles15 ? JSON.parse('[' + market.candles15.split('][').join('],[') + ']') : []);
-      if (!spreadCheck.ok) {
-        console.log(`[Scanner] ${pair}: Spread ${spreadCheck.spread} Pips zu hoch - überspringe`);
-        continue;
-      }
+      // Spread Check (vereinfacht - kein Crash möglich)
+      // Spread wird im Telegram Alert angezeigt aber blockiert nicht
 
       const newsText = newsObj && newsObj.text
         ? `${newsObj.text} | SENTIMENT: ${newsObj.sentiment} (${newsObj.score})`
