@@ -4,7 +4,8 @@
   "description": "CORS Proxy for Apex Signals Trading Dashboard",
   "main": "proxy-server.js",
   "scripts": {
-    "start": "node proxy-server.js"
+    "start": "node proxy-server.js",
+    "backtest": "node backtest.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -575,16 +575,22 @@ app.post('/openai', async (req, res) => {
 
 app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v6.0'));
 
-// Keep-Alive: verhindert dass Render einschläft
-const PROXY_URL = process.env.RENDER_EXTERNAL_URL || 'https://apex-signals-proxy.onrender.com';
-setInterval(async () => {
-  try {
-    await fetch(`${PROXY_URL}/`);
-    console.log('[Keep-Alive] Ping gesendet');
-  } catch(e) {
-    console.log('[Keep-Alive] Ping fehlgeschlagen:', e.message);
-  }
-}, 10 * 60 * 1000); // Alle 10 Minuten pingen
+// Für backtest.js: gleiche Prompts & KI-Calls wie live
+module.exports = { getSession, callClaude, callGemini, callGPT };
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+// Server nur starten wenn direkt ausgeführt (nicht bei require durch backtest.js)
+if (require.main === module) {
+  // Keep-Alive: verhindert dass Render einschläft
+  const PROXY_URL = process.env.RENDER_EXTERNAL_URL || 'https://apex-signals-proxy.onrender.com';
+  setInterval(async () => {
+    try {
+      await fetch(`${PROXY_URL}/`);
+      console.log('[Keep-Alive] Ping gesendet');
+    } catch(e) {
+      console.log('[Keep-Alive] Ping fehlgeschlagen:', e.message);
+    }
+  }, 10 * 60 * 1000); // Alle 10 Minuten pingen
+
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+}
