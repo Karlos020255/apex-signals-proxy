@@ -198,10 +198,12 @@ async function getEconomicCalendar(finnhubKey) {
 }
 
 // ── TELEGRAM ALERTS ───────────────────────────────────────────
-const TELEGRAM_TOKEN = '8216425635:AAGH6-HdGfEosMmOjtHh4XOXYVQDYtWpHts';
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+if (!TELEGRAM_TOKEN) console.warn('TELEGRAM_BOT_TOKEN nicht gesetzt - Telegram Alerts deaktiviert');
 const TELEGRAM_CHAT_ID = '1647498717';
 
 async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason, session) {
+  if (!TELEGRAM_TOKEN) return;
   try {
     const emoji = signal === 'BUY' ? '🟢' : '🔴';
     const pipFactor = pair.includes('JPY') ? 100 : 10000;
@@ -412,7 +414,7 @@ async function callClaude(pair, m, news, calendar, session) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'x-api-key':process.env.CLAUDE_API_KEY, 'anthropic-version':'2023-06-01' },
-    body: JSON.stringify({ model:'claude-sonnet-4-5', max_tokens:500, messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }] })
+    body: JSON.stringify({ model:'claude-sonnet-5', max_tokens:500, messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }] })
   });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message);
