@@ -412,7 +412,7 @@ async function callClaude(pair, m, news, calendar, session) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'x-api-key':process.env.CLAUDE_API_KEY, 'anthropic-version':'2023-06-01' },
-    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:500, messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }] })
+    body: JSON.stringify({ model:'claude-sonnet-4-5', max_tokens:500, messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }] })
   });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message);
