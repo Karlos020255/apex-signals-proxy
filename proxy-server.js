@@ -414,12 +414,36 @@ async function callClaude(pair, m, news, calendar, session) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type':'application/json', 'x-api-key':process.env.CLAUDE_API_KEY, 'anthropic-version':'2023-06-01' },
-    body: JSON.stringify({ model:'claude-sonnet-5', max_tokens:500, messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }] })
+    body: JSON.stringify({
+      model:'claude-sonnet-5',
+      max_tokens:4000,
+      messages:[{ role:'user', content:claudePrompt(pair,m,news,calendar,session) }],
+      // Structured Output: API garantiert gültiges JSON nach diesem Schema
+      output_config: { effort:'medium', format: { type:'json_schema', schema: SIGNAL_SCHEMA } }
+    })
   });
   const d = await r.json();
   if (d.error) throw new Error(d.error.message);
-  return extractJSON(d.content?.[0]?.text || '');
+  if (d.stop_reason === 'refusal') throw new Error('Claude hat die Anfrage abgelehnt');
+  if (d.stop_reason === 'max_tokens') throw new Error('Claude Antwort abgeschnitten (max_tokens)');
+  // Sonnet 5 denkt standardmäßig - erster Block ist oft "thinking", daher Text-Block suchen
+  const text = (d.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+  return extractJSON(text);
 }
+
+const SIGNAL_SCHEMA = {
+  type: 'object',
+  properties: {
+    signal:     { type: 'string', enum: ['BUY', 'SELL', 'NEUTRAL'] },
+    entry:      { type: 'string' },
+    sl:         { type: 'string' },
+    tp:         { type: 'string' },
+    confidence: { type: 'integer' },
+    reason:     { type: 'string' }
+  },
+  required: ['signal', 'entry', 'sl', 'tp', 'confidence', 'reason'],
+  additionalProperties: false
+};
 
 // Gemini Modelle in Reihenfolge - fällt automatisch auf nächstes zurück
 const GEMINI_MODELS = [
