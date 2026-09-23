@@ -197,80 +197,6 @@ async function getEconomicCalendar(finnhubKey) {
   } catch(e) { return 'Kalender temporär nicht verfuegbar'; }
 }
 
-// ── TELEGRAM ALERTS ───────────────────────────────────────────
-const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-if (!TELEGRAM_TOKEN) console.warn('TELEGRAM_BOT_TOKEN nicht gesetzt - Telegram Alerts deaktiviert');
-const TELEGRAM_CHAT_ID = '1647498717';
-
-async function sendTelegramAlert(pair, signal, entry, sl, tp, confidence, reason, session) {
-  if (!TELEGRAM_TOKEN) return;
-  try {
-    const emoji = signal === 'BUY' ? '🟢' : '🔴';
-    const pipFactor = pair.includes('JPY') ? 100 : 10000;
-    const dec = pair.includes('JPY') ? 3 : 5;
-    const entryF = parseFloat(entry);
-    const slF    = parseFloat(sl);
-
-    // SL Distanz berechnen
-    const slDistance = Math.abs(entryF - slF);
-
-    // TP1 = 1:1 (gleicher Abstand wie SL)
-    const tp1F = signal === 'BUY' ? entryF + slDistance : entryF - slDistance;
-    // TP2 = 1:2 (doppelter Abstand wie SL)
-    const tp2F = signal === 'BUY' ? entryF + (slDistance * 2) : entryF - (slDistance * 2);
-
-    const slPips  = (slDistance * pipFactor).toFixed(1);
-    const tp1Pips = (slDistance * pipFactor).toFixed(1);
-    const tp2Pips = (slDistance * 2 * pipFactor).toFixed(1);
-
-    const tp2Str = tp2F.toFixed(dec);
-
-    const maxSpread = MAX_SPREAD[pair] || 2.0;
-    const msg = `${emoji} *APEX SIGNAL – ${pair}*
-
-` +
-      `📊 Signal: *${signal}*
-` +
-      `💰 Entry: \`${entryF.toFixed(dec)}\`
-` +
-      `🛑 Stop Loss: \`${slF.toFixed(dec)}\` (-${slPips} Pips)
-
-` +
-      `🎯 TP1: \`${tp1F.toFixed(dec)}\` (+${tp1Pips} Pips) → 0.5 Lot schließen
-` +
-      `🏆 TP2: \`${tp2Str}\` (+${tp2Pips} Pips) → Rest schließen
-
-` +
-      `💡 Bei TP1 → SL auf Breakeven setzen!
-
-` +
-      `📈 Konfidenz: ${confidence}/10
-` +
-      `⏰ Session: ${session}
-` +
-      `📉 Max. Spread: ${maxSpread} Pips
-
-` +
-      `💬 _${reason}_
-
-` +
-      `⚠️ Kein Anlageberatungs-Tool – Nur Informationszwecke`;
-
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: msg,
-        parse_mode: 'Markdown'
-      })
-    });
-    console.log('Telegram Alert gesendet:', pair, signal);
-  } catch(e) {
-    console.error('Telegram Fehler:', e.message);
-  }
-}
-
 // ── PROMPTS ────────────────────────────────────────────────────
 function claudePrompt(pair, m, news, calendar, session) {
   const base = pair.split('/')[0];
@@ -595,20 +521,6 @@ ${text}` }]
     const newsSentiment = (newsObj && newsObj.sentiment) ? newsObj.sentiment : 'NEUTRAL';
     const newsScore = (newsObj && newsObj.score) ? newsObj.score : '0';
 
-    // ✅ TELEGRAM ALERT: Nur bei Konsens BUY oder SELL
-    const signals = results.filter(r => !r.error).map(r => r.signal);
-    const allBuy = signals.length >= 2 && signals.every(s => s === 'BUY');
-    const allSell = signals.length >= 2 && signals.every(s => s === 'SELL');
-    
-    if (allBuy || allSell) {
-      const masterSignal = allBuy ? 'BUY' : 'SELL';
-      const avgConf = Math.round(results.filter(r => !r.error).reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / results.filter(r => !r.error).length);
-      const firstResult = results.find(r => !r.error && r.signal === masterSignal);
-      if (firstResult && firstResult.sl !== '0' && firstResult.tp !== '0') {
-        sendTelegramAlert(pair, masterSignal, firstResult.entry, firstResult.sl, firstResult.tp, avgConf, firstResult.reason, session);
-      }
-    }
-
     res.json({
       market: { currentPrice: market.currentPrice, rsi: market.rsi, ema20: market.ema20, ema50_4h: market.ema50_4h },
       news: newsDisplay,
@@ -661,168 +573,7 @@ app.post('/openai', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v6.0 — AUTO-SCANNER ACTIVE'));
-
-// ── AUTO-SCANNER 24/7 ──────────────────────────────────────────
-const SCAN_PAIRS = ['EUR/USD','GBP/USD','USD/JPY','GBP/JPY','EUR/GBP','AUD/USD','USD/CAD','XAU/USD'];
-
-// Max erlaubter Spread pro Pair (in Pips)
-const MAX_SPREAD = {
-  'EUR/USD': 1.5,
-  'GBP/USD': 2.0,
-  'USD/JPY': 1.5,
-  'GBP/JPY': 3.0,
-  'EUR/GBP': 1.5,
-  'AUD/USD': 2.0,
-  'USD/CAD': 2.5,
-  'XAU/USD': 35.0  // Gold in Pips anders
-};
-
-function checkSpread(pair, candles) {
-  try {
-    if (!candles || candles.length === 0) return { ok: true, spread: 0 };
-    // Spread aus letzter Kerze schätzen (High - Low der kleinsten Kerze)
-    const lastCandle = candles[0];
-    const high = parseFloat(lastCandle.high);
-    const low  = parseFloat(lastCandle.low);
-    const pipFactor = pair.includes('JPY') ? 100 : (pair.includes('XAU') ? 10 : 10000);
-    const spread = ((high - low) * pipFactor * 0.1).toFixed(1); // Schätzung
-    const maxAllowed = MAX_SPREAD[pair] || 2.0;
-    return { ok: parseFloat(spread) <= maxAllowed, spread: parseFloat(spread) };
-  } catch(e) {
-    return { ok: true, spread: 0 };
-  }
-}
-const SCAN_INTERVAL = 30 * 60 * 1000; // alle 30 Minuten
-const lastSignals = {}; // Duplikat-Schutz
-
-async function runAutoScan() {
-  const geminiKey = process.env.GEMINI_KEY;
-  const openaiKey = process.env.OPENAI_KEY;
-  const twelveKey = process.env.TWELVE_KEY;
-  const finnhubKey = process.env.FINNHUB_KEY;
-
-  if (!geminiKey || !twelveKey) {
-    console.log('[Scanner] Keys fehlen - überspringe');
-    return;
-  }
-
-  const utcHour = new Date().getUTCHours();
-  const session = getSession(utcHour);
-
-  // Nur London + NY Session (07:00 - 20:00 UTC)
-  if (utcHour < 7 || utcHour > 20) {
-    console.log(`[Scanner] Außerhalb Trading-Stunden (${utcHour} UTC) - überspringe`);
-    return;
-  }
-
-  console.log(`[Scanner] Start - ${SCAN_PAIRS.length} Paare | ${session} | ${new Date().toISOString()}`);
-
-  for (const pair of SCAN_PAIRS) {
-    try {
-      // Gleiche Live-Daten wie manuelle Analyse
-      const [market, newsObj, calendar] = await Promise.all([
-        getLiveMarketData(pair, twelveKey),
-        getLiveNews(pair, finnhubKey),
-        getEconomicCalendar(finnhubKey)
-      ]);
-
-      if (!market || market.currentPrice === 'N/A') {
-        console.log(`[Scanner] ${pair}: Keine Daten`);
-        continue;
-      }
-
-      // Spread Check (vereinfacht - kein Crash möglich)
-      // Spread wird im Telegram Alert angezeigt aber blockiert nicht
-
-      const newsText = newsObj && newsObj.text
-        ? `${newsObj.text} | SENTIMENT: ${newsObj.sentiment} (${newsObj.score})`
-        : 'Keine News | SENTIMENT: NEUTRAL (0)';
-
-      // Gleiche 3 KIs wie manuelle Analyse
-      const [claudeR, geminiR, gptR] = await Promise.all([
-        callClaude(pair, market, newsText, calendar, session)
-          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message })),
-        callGemini(geminiKey, pair, market, newsText, calendar, session)
-          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message })),
-        callGPT(openaiKey, pair, market, newsText, calendar, session)
-          .catch(e => ({ signal:'NEUTRAL', confidence:0, reason: e.message }))
-      ]);
-
-      const results = [claudeR, geminiR, gptR];
-
-      // Gleicher Konfidenz-Filter wie manuell
-      const filtered = results.map(r => {
-        const conf = parseInt(r.confidence) || 0;
-        if (r.signal !== 'NEUTRAL' && conf < 4) return { ...r, signal:'NEUTRAL' };
-        return r;
-      });
-
-      const signals = filtered.map(r => r.signal);
-      const allBuy  = signals.every(s => s === 'BUY');
-      const allSell = signals.every(s => s === 'SELL');
-
-      console.log(`[Scanner] ${pair}: ${signals.join(' | ')}`);
-
-      if (allBuy || allSell) {
-        const masterSignal = allBuy ? 'BUY' : 'SELL';
-        const avgConf = Math.round(filtered.reduce((a,r) => a+(parseInt(r.confidence)||5), 0) / filtered.length);
-
-        // Konfidenz Filter: nur ab 7/10 senden
-        if (avgConf < 7) {
-          console.log(`[Scanner] ${pair}: Konfidenz ${avgConf}/10 zu niedrig - kein Alert`);
-          delete lastSignals[pair];
-          continue;
-        }
-
-        const signalKey = `${pair}-${masterSignal}-${market.currentPrice}`;
-
-        // Duplikat-Schutz: gleiches Signal nicht 2x senden
-        if (lastSignals[pair] === signalKey) {
-          console.log(`[Scanner] ${pair}: Duplikat - bereits gesendet`);
-          continue;
-        }
-        lastSignals[pair] = signalKey;
-
-        const best = filtered.find(r => r.signal === masterSignal);
-
-        console.log(`[Scanner] 🎯 SIGNAL: ${pair} ${masterSignal} | Konfidenz: ${avgConf}/10 ✅`);
-
-        if (best && best.sl !== '0' && best.tp !== '0') {
-          await sendTelegramAlert(pair, masterSignal, best.entry || market.currentPrice, best.sl, best.tp, avgConf, best.reason || '', session);
-        }
-      } else {
-        delete lastSignals[pair]; // Reset damit nächster Scan neu prüft
-      }
-
-      // 5 Sekunden Pause zwischen Paaren (Rate Limit Schutz)
-      await new Promise(r => setTimeout(r, 5000));
-
-    } catch(e) {
-      console.error(`[Scanner] Fehler ${pair}:`, e.message);
-    }
-  }
-  console.log(`[Scanner] Durchlauf fertig - nächster in 30min`);
-}
-
-// Smarter Scan: 15min während aktiver Sessions, 30min außerhalb
-function getSmartInterval() {
-  const utcHour = new Date().getUTCHours();
-  // 07:00 - 16:00 UTC = London + NY Overlap (09:00 - 18:00 DE)
-  if (utcHour >= 7 && utcHour <= 16) return 15 * 60 * 1000; // 15min
-  return 30 * 60 * 1000; // 30min außerhalb
-}
-
-let scanTimer = null;
-function scheduleNextScan() {
-  const interval = getSmartInterval();
-  const minutes = interval / 60000;
-  console.log(`[Scanner] Nächster Scan in ${minutes} Minuten`);
-  scanTimer = setTimeout(async () => {
-    await runAutoScan();
-    scheduleNextScan(); // Rekursiv → passt Intervall jedes Mal an
-  }, interval);
-}
+app.get('/', (req, res) => res.send('APEX SIGNALS PROXY v6.0'));
 
 // Keep-Alive: verhindert dass Render einschläft
 const PROXY_URL = process.env.RENDER_EXTERNAL_URL || 'https://apex-signals-proxy.onrender.com';
@@ -834,12 +585,6 @@ setInterval(async () => {
     console.log('[Keep-Alive] Ping fehlgeschlagen:', e.message);
   }
 }, 10 * 60 * 1000); // Alle 10 Minuten pingen
-
-// 15 Sekunden nach Server-Start beginnen
-setTimeout(async () => {
-  await runAutoScan();
-  scheduleNextScan();
-}, 15000);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
